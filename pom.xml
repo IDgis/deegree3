@@ -18,8 +18,8 @@
 
   <repositories>
     <repository>
-      <id>deegree-repo</id>
-      <url>http://repo.deegree.org/content/groups/public/</url>
+      <id>idgis-repo</id>
+      <url>https://jenkins.occamlabs.de/nexus/content/groups/idgis/</url>
       <releases>
         <updatePolicy>never</updatePolicy>
       </releases>
@@ -31,20 +31,13 @@
 
   <distributionManagement>
     <repository>
-      <id>deegree-releases</id>
-      <url>http://repo.deegree.org/content/repositories/releases/</url>
+      <id>idgis-releases</id>
+      <url>https://jenkins.occamlabs.de/nexus/content/repositories/idgis-releases/</url>
     </repository>
     <snapshotRepository>
-      <id>deegree-snapshots</id>
-      <url>http://repo.deegree.org/content/repositories/snapshots/</url>
+      <id>idgis-snapshots</id>
+      <url>https://jenkins.occamlabs.de/nexus/content/repositories/idgis-snapshots/</url>
     </snapshotRepository>
-    <site>
-      <id>apidoc.deegree.org</id>
-<!--
-      <url>scp://apidoc.deegree.org/var/www/apidoc.deegree.org/${project.version}/</url>
--->
-      <url>file:///${site.dir}/${project.version}/</url>
-    </site>
   </distributionManagement>
 
   <prerequisites>
