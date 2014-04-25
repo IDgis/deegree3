@@ -38,6 +38,8 @@
  ----------------------------------------------------------------------------*/
 package org.deegree.sqldialect.oracle.sdo;
 
+import static org.deegree.geometry.validation.GeometryFixer.forceOrientation;
+
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,8 +80,6 @@ import org.deegree.geometry.standard.points.PackedPoints;
 import org.deegree.geometry.standard.points.PointsArray;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import static org.deegree.geometry.validation.GeometryFixer.forceOrientation;
 
 /**
  * Convert between Oracle JDBC STRUCT and deegree Geometry
