@@ -39,6 +39,8 @@
 package org.deegree.sqldialect.oracle.sdo;
 
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -83,6 +85,7 @@ import static org.deegree.geometry.validation.GeometryFixer.forceOrientation;
  * Convert between Oracle JDBC STRUCT and deegree Geometry
  * 
  * @author <a href="mailto:reichhelm@grit.de">Stephan Reichhelm</a>
+ * @author <a href="mailto:reijer.copier@idgis.nl">Reijer Copier</a>
  * 
  * @version $Revision$, $Date$
  */
@@ -102,7 +105,6 @@ public class SDOGeometryConverter {
     protected static class GeomHolder {
         public final int gtype;
 
-        @SuppressWarnings("unused")
         public final int srid;
 
         public final int[] elem_info;
@@ -260,7 +262,6 @@ public class SDOGeometryConverter {
      * @return Geometry
      * @throws SQLException
      */
-    @SuppressWarnings("unchecked")
     public Geometry toGeometry( STRUCT sdoStruct, ICRS crs )
                             throws SQLException {
         if ( sdoStruct == null )
@@ -275,6 +276,12 @@ public class SDOGeometryConverter {
                                          OracleObjectTools.fromDoubleArray( (ARRAY) data[4], Double.NaN ), // ordinates
                                          crs );
 
+        return toGeometry( sdo, crs );
+    }
+
+    @SuppressWarnings("unchecked")
+    protected Geometry toGeometry( GeomHolder sdo, ICRS crs )
+                            throws SQLException {
         if ( sdo.cnt_o < sdo.gtype_d || sdo.cnt_e < 3 || sdo.cnt_o % sdo.gtype_d > 0 || sdo.cnt_e % 3 > 0 )
             throw new SQLException( "Illegal Geometry" );
         else if ( sdo.gtype_l > 0 )
@@ -282,10 +289,12 @@ public class SDOGeometryConverter {
         else if ( sdo.gtype_tt == SDOGTypeTT.UNKNOWN )
             throw new SQLException( "Unsupported Geometry" );
 
+        Ring ringe = null;
+        List<Ring> ringi = new ArrayList<Ring>();
+        List<Ring> ringu = new ArrayList<Ring>();
+
         int etype;
         while ( ( etype = sdo.nxt() ) != -1 ) {
-            // etype == sdo.elem_info[sdo.elemoff + 1]
-
             switch ( etype ) {
             case SDOEType.POINT:
                 handlePoint( sdo );
@@ -295,20 +304,49 @@ public class SDOGeometryConverter {
                 handleLine( sdo );
                 break;
 
-            case SDOEType.POLYGON_INTERIOR: // see above NOTE 1
-            case SDOEType.POLYGON_EXTERIOR:
-            case SDOEType.POLYGON_UNKNOWN:
-                handleSimplePoly( sdo );
+            case SDOEType.POLYGON_RING_INTERIOR: // see above NOTE 1
+            case SDOEType.POLYGON_RING_EXTERIOR:
+            case SDOEType.POLYGON_RING_UNKNOWN:
+                Ring rng = handleSimpleRing( sdo );
+                switch ( etype ) {
+                case SDOEType.POLYGON_RING_INTERIOR:
+                    ringi.add( rng );
+                    break;
+                case SDOEType.POLYGON_RING_EXTERIOR:
+                    if ( ringe != null ) {
+                        sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ringe, ringi ) );
+                        ringi = new ArrayList<Ring>();
+                    }
+                    ringe = rng;
+                    break;
+                case SDOEType.POLYGON_RING_UNKNOWN:
+                    ringu.add( rng );
+                }
                 break;
 
             case SDOEType.COMPOUND_LINESTRING:
                 sdo.add( GeomHolderTyp.CURVE, handleCompoundCurve( sdo ) );
                 break;
 
-            case SDOEType.COMPOUND_POLYGON_INTERIOR: // see above NOTE 1
-            case SDOEType.COMPOUND_POLYGON_EXTERIOR:
-            case SDOEType.COMPOUND_POLYGON_UNKNOWN:
-                handleCompoundPolygon( sdo );
+            case SDOEType.COMPOUND_POLYGON_RING_INTERIOR: // see above NOTE 1
+            case SDOEType.COMPOUND_POLYGON_RING_EXTERIOR:
+            case SDOEType.COMPOUND_POLYGON_RING_UNKNOWN:
+                rng = handleCompoundRing( sdo );
+                switch ( etype ) {
+                case SDOEType.COMPOUND_POLYGON_RING_INTERIOR:
+                    ringi.add( rng );
+                    break;
+                case SDOEType.COMPOUND_POLYGON_RING_EXTERIOR:
+                    if ( ringe != null ) {
+                        sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ringe, ringi ) );
+                        ringi = new ArrayList<Ring>();
+                    }
+                    ringe = rng;
+                    break;
+                case SDOEType.COMPOUND_POLYGON_RING_UNKNOWN:
+                    ringu.add( rng );
+                }
+
                 break;
 
             case SDOEType.UNKNOWN:
@@ -316,6 +354,21 @@ public class SDOGeometryConverter {
                 createUnknownException( sdo );
                 break;
             }
+        }
+
+        if ( !ringu.isEmpty() ) {
+            LOG.warn( "SDO_Geometry with rings of unknown type detected. " +
+            		"Please consider upgrading to the current format using " +
+            		"the SDO_MIGRATE.TO_CURRENT procedure." );
+
+            // TODO: implement the proper algorithm to figure out the ring type
+            for ( Ring ring : ringu ) {
+                sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ring, Collections.<Ring> emptyList() ) );
+            }
+        }
+
+        if ( ringe != null ) {
+            sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ringe, ringi ) );
         }
 
         if ( sdo.geoms.size() == 0 ) {
@@ -362,44 +415,19 @@ public class SDOGeometryConverter {
         return _gf.createCurve( null, sdo.crs, lst.toArray( new CurveSegment[lst.size()] ) );
     }
 
-    private void handleCompoundPolygon( GeomHolder sdo )
+    private Ring handleCompoundRing( GeomHolder sdo )
                             throws SQLException {
-        Ring ringe = null;
-        Ring rng = null;
-        boolean[] state;
-        List<Ring> ringi = new LinkedList<Ring>();
-        int typ = sdo.elem_info[sdo.elemoff + 1];
+        int subelem = sdo.elem_info[sdo.elemoff + 2];
 
-        do {
-            state = checkRingstate( typ, ringe != null );
-            if ( state[0] )
-                break;
-
-            int subelem = sdo.elem_info[sdo.elemoff + 2];
-
-            List<CurveSegment> lst = new LinkedList<CurveSegment>();
-            for ( int i = 0; i < subelem; i++ ) {
-                sdo.nxt();
-                handleCurveSegment( sdo, lst, ( i + 1 ) == subelem );
-            }
-
-            List<Curve> clst = new LinkedList<Curve>();
-            clst.add( _gf.createCurve( null, sdo.crs, lst.toArray( new CurveSegment[lst.size()] ) ) );
-            rng = _gf.createRing( null, sdo.crs, clst );
-
-            if ( state[1] )
-                ringi.add( rng );
-            else
-                ringe = rng;
-
-        } while ( ( typ = sdo.nxt() ) != -1 );
-        sdo.prev();
-
-        // if ( ringe.size() > 0 ) {
-        if ( ringe != null ) {
-            sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ringe, ringi ) );
+        List<CurveSegment> lst = new LinkedList<CurveSegment>();
+        for ( int i = 0; i < subelem; i++ ) {
+            sdo.nxt();
+            handleCurveSegment( sdo, lst, ( i + 1 ) == subelem );
         }
 
+        List<Curve> clst = new LinkedList<Curve>();
+        clst.add( _gf.createCurve( null, sdo.crs, lst.toArray( new CurveSegment[lst.size()] ) ) );
+        return _gf.createRing( null, sdo.crs, clst );
     }
 
     /**
@@ -485,77 +513,7 @@ public class SDOGeometryConverter {
     }
 
     /**
-     * Check current ringstate
-     * 
-     * @return array of a) break yes/no b) clockwise yes(interior) / no(exterior)
-     */
-
-    private boolean[] checkRingstate( int typ, boolean hasExterior ) {
-        boolean[] res = new boolean[2];
-        int rtyp = typ / 1000;
-        res[0] = false;
-        res[1] = true;
-
-        // rtyp 1 = exterior
-        // rtyp 2 = interior
-
-        if ( rtyp == 1 && hasExterior ) {
-            // next element catched -> caller should break
-            res[0] = true;
-        } else if ( rtyp == 1 ) {
-            // exterior
-            res[1] = false;
-        } else if ( rtyp == 2 ) {
-            // interior
-            res[1] = true;
-        } else if ( !hasExterior ) {
-            // unknown, no ext available -> exterior
-            res[1] = false;
-        } else {
-            // unknown, exterior available -> interior
-
-            res[1] = true;
-        }
-
-        return res;
-    }
-
-    /**
-     * Handle (simple) polygon type (POLYGON_EXTERIOR, POLYGON_INTERIOR, POLYGON_UNKNOWN)
-     * 
-     * This Element must start with a POLYGON_EXTERIOR or POLYGON_UNKNOWN element
-     */
-    private void handleSimplePoly( GeomHolder sdo )
-                            throws SQLException {
-        Ring ringe = null;
-        Ring rng = null;
-        boolean[] state;
-        List<Ring> ringi = new LinkedList<Ring>();
-        int typ = sdo.elem_info[sdo.elemoff + 1];
-
-        do {
-            state = checkRingstate( typ, ringe != null );
-            if ( state[0] )
-                break;
-
-            rng = handleSimpleRing( sdo, state[1] );
-            if ( state[1] )
-                ringi.add( rng );
-            else
-                ringe = rng;
-
-            // handleSimpleRing( sdo, rings, false );
-        } while ( ( typ = sdo.nxt() ) != -1 );
-        sdo.prev();
-
-        // if ( ringe.size() > 0 ) {
-        if ( ringe != null ) {
-            sdo.add( GeomHolderTyp.POLYGON, _gf.createPolygon( null, sdo.crs, ringe, ringi ) );
-        }
-    }
-
-    /**
-     * Handle (simple) ring types of a polygon (POLYGON_EXTERIOR, POLYGON_INTERIOR, POLYGON_UNKNOWN)
+     * Handle (simple) ring types of a polygon (POLYGON_RING_EXTERIOR, POLYGON_RING_INTERIOR, POLYGON_RING_UNKNOWN)
      * 
      * Interpretation are handled as follow:
      * <ol>
@@ -565,7 +523,7 @@ public class SDOGeometryConverter {
      * <li>4) circle; three distinct points on the circle</li>
      * </ol>
      */
-    private Ring handleSimpleRing( GeomHolder sdo, boolean clockwise )
+    private Ring handleSimpleRing( GeomHolder sdo )
                             throws SQLException {
         int intpr = sdo.elem_info[sdo.elemoff + 2];
         int off = sdo.elem_info[sdo.elemoff];
@@ -596,10 +554,11 @@ public class SDOGeometryConverter {
             Point c = _gf.createPoint( null, ur.get0(), ur.get1(), sdo.crs );
             Point d = _gf.createPoint( null, ur.get0(), ll.get1(), sdo.crs );
             Points rngp = null;
-            if ( clockwise )
+            if ( ll.get0() < ur.get0() || ll.get1() < ur.get1() ) {
                 rngp = new PointsArray( a, b, c, d, a );
-            else
+            } else {
                 rngp = new PointsArray( a, d, c, b, a );
+            }
             rng = _gf.createLinearRing( null, sdo.crs, rngp );
         }
 
@@ -771,16 +730,16 @@ public class SDOGeometryConverter {
             gtyp = SDOGTypeTT.POINT;
         } else if ( geom instanceof com.vividsolutions.jts.geom.LinearRing ) {
             buildJTSLineString( info, pnts, crs, (com.vividsolutions.jts.geom.LineString) geom,
-                                SDOEType.POLYGON_EXTERIOR );
+                                SDOEType.POLYGON_RING_EXTERIOR );
             gtyp = SDOGTypeTT.POLYGON;
         } else if ( geom instanceof com.vividsolutions.jts.geom.LineString ) {
             buildJTSLineString( info, pnts, crs, (com.vividsolutions.jts.geom.LineString) geom, SDOEType.LINESTRING );
             gtyp = SDOGTypeTT.LINE;
         } else if ( geom instanceof com.vividsolutions.jts.geom.Polygon ) {
             com.vividsolutions.jts.geom.Polygon polygon = (com.vividsolutions.jts.geom.Polygon) geom;
-            buildJTSLineString( info, pnts, crs, polygon.getExteriorRing(), SDOEType.POLYGON_EXTERIOR );
+            buildJTSLineString( info, pnts, crs, polygon.getExteriorRing(), SDOEType.POLYGON_RING_EXTERIOR );
             for ( int i = 0, j = polygon.getNumInteriorRing(); i < j; i++ ) {
-                buildJTSLineString( info, pnts, crs, polygon.getInteriorRingN( i ), SDOEType.POLYGON_INTERIOR );
+                buildJTSLineString( info, pnts, crs, polygon.getInteriorRingN( i ), SDOEType.POLYGON_RING_INTERIOR );
             }
             gtyp = SDOGTypeTT.POLYGON;
         } else if ( geom instanceof com.vividsolutions.jts.geom.MultiPoint ) {
@@ -798,9 +757,9 @@ public class SDOGeometryConverter {
             com.vividsolutions.jts.geom.Polygon polygon = null;
             for ( int m = 0, n = geom.getNumGeometries(); m < n; m++ ) {
                 polygon = (com.vividsolutions.jts.geom.Polygon) geom.getGeometryN( m );
-                buildJTSLineString( info, pnts, crs, polygon.getExteriorRing(), SDOEType.POLYGON_EXTERIOR );
+                buildJTSLineString( info, pnts, crs, polygon.getExteriorRing(), SDOEType.POLYGON_RING_EXTERIOR );
                 for ( int i = 0, j = polygon.getNumInteriorRing(); i < j; i++ ) {
-                    buildJTSLineString( info, pnts, crs, polygon.getInteriorRingN( i ), SDOEType.POLYGON_INTERIOR );
+                    buildJTSLineString( info, pnts, crs, polygon.getInteriorRingN( i ), SDOEType.POLYGON_RING_INTERIOR );
                 }
             }
             gtyp = SDOGTypeTT.MULTIPOLYGON;
@@ -877,7 +836,7 @@ public class SDOGeometryConverter {
     }
 
     private int buildEnvelope( List<Triplet> info, List<Point> pnts, Envelope geom ) {
-        info.add( new Triplet( pnts.size(), SDOEType.POLYGON_EXTERIOR, 3 ) );
+        info.add( new Triplet( pnts.size(), SDOEType.POLYGON_RING_EXTERIOR, 3 ) );
         pnts.add( geom.getMin() );
         pnts.add( geom.getMax() );
 
@@ -949,7 +908,7 @@ public class SDOGeometryConverter {
             if ( isSimple ) {
                 buildCurveSegmentSimple( info, pnts, eseg.get( 0 ), true );
             } else {
-                info.add( new Triplet( pnts.size(), SDOEType.COMPOUND_POLYGON_EXTERIOR, eseg.size() ) );
+                info.add( new Triplet( pnts.size(), SDOEType.COMPOUND_POLYGON_RING_EXTERIOR, eseg.size() ) );
                 for ( int i = 0, j = eseg.size(); i < j; i++ ) {
                     buildCurveSegment( info, pnts, eseg.get( i ), i > 0 );
                 }
@@ -962,7 +921,7 @@ public class SDOGeometryConverter {
                 if ( isSimple ) {
                     buildCurveSegmentSimple( info, pnts, iseg.get( 0 ), false );
                 } else {
-                    info.add( new Triplet( pnts.size(), SDOEType.COMPOUND_POLYGON_INTERIOR, eseg.size() ) );
+                    info.add( new Triplet( pnts.size(), SDOEType.COMPOUND_POLYGON_RING_INTERIOR, eseg.size() ) );
                     for ( int i = 0, j = iseg.size(); i < j; i++ ) {
                         buildCurveSegment( info, pnts, iseg.get( i ), i > 0 );
                     }
@@ -985,7 +944,7 @@ public class SDOGeometryConverter {
 
     private void buildCurveSegmentSimple( List<Triplet> info, List<Point> pnts, CurveSegment geom, boolean exterior ) {
         CurveSegmentType typ = geom.getSegmentType();
-        int etype = exterior ? SDOEType.POLYGON_EXTERIOR : SDOEType.POLYGON_INTERIOR;
+        int etype = exterior ? SDOEType.POLYGON_RING_EXTERIOR : SDOEType.POLYGON_RING_INTERIOR;
 
         if ( typ == CurveSegmentType.ARC_STRING || typ == CurveSegmentType.ARC ) {
             info.add( new Triplet( pnts.size(), etype, 2 ) );
