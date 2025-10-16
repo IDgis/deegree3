@@ -38,6 +38,7 @@ import static org.deegree.commons.utils.JavaUtils.generateToString;
 import static org.deegree.featureinfo.templating.lang.Util.getMatchingObjects;
 import static org.slf4j.LoggerFactory.getLogger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -55,13 +56,13 @@ public class FeatureTemplateCall {
 
 	private static final Logger LOG = getLogger(FeatureTemplateCall.class);
 
-	private String name;
+	private final String name;
 
-	private List<String> patterns;
+	private final List<String> patterns;
 
-	private HashSet<Object> visited = new HashSet<Object>();
+	private final HashSet<Object> visited = new HashSet<Object>();
 
-	private boolean negate;
+	private final boolean negate;
 
 	/**
 	 * @param name
@@ -70,8 +71,20 @@ public class FeatureTemplateCall {
 	 */
 	public FeatureTemplateCall(String name, List<String> patterns, boolean negate) {
 		this.name = name;
-		this.patterns = patterns;
+		this.patterns = Collections.unmodifiableList(patterns);
 		this.negate = negate;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public List<String> getPatterns() {
+		return patterns;
+	}
+
+	public boolean isNegate() {
+		return negate;
 	}
 
 	private void eval(StringBuilder sb, HashMap<String, Object> defs, Feature f, TemplateDefinition t,

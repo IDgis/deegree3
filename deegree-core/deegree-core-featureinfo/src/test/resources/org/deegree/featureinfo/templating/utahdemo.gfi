@@ -5,6 +5,7 @@
 <?feature *:myfeaturetemplate>
 <?feature test*:myfeaturetemplate>
 <?feature *test:myfeaturetemplate>
+<?feature *test,test*:myfeaturetemplate>
 <?link:http://something/else:Dokument herunterladen>
 <?link:http://something:8080/else:Dokument herunterladen>
 <?link:http://something/else:>

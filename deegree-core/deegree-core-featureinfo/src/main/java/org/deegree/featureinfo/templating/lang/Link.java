@@ -60,15 +60,15 @@ public class Link {
 
 	public static final QName XLINK_HREF = new QName(XLNNS, "href");
 
-	private String prefix;
+	private final String prefix;
 
-	private String text;
+	private final String text;
 
 	/**
 	 * @param prefix
 	 */
 	public Link(String prefix) {
-		this.prefix = prefix;
+		this(prefix, null);
 	}
 
 	/**
@@ -82,6 +82,14 @@ public class Link {
 			text = text.replace("&", "&amp;");
 		}
 		this.text = text;
+	}
+
+	public String getPrefix() {
+		return prefix;
+	}
+
+	public String getText() {
+		return text;
 	}
 
 	/**

@@ -58,11 +58,11 @@ public class PropertyTemplateCall {
 
 	private static final Logger LOG = getLogger(PropertyTemplateCall.class);
 
-	private String name;
+	private final String name;
 
-	private List<String> patterns;
+	private final List<String> patterns;
 
-	private HashSet<Object> visited = new HashSet<Object>();
+	private final HashSet<Object> visited = new HashSet<Object>();
 
 	private final boolean negate;
 
@@ -73,8 +73,20 @@ public class PropertyTemplateCall {
 	 */
 	public PropertyTemplateCall(String name, List<String> patterns, boolean negate) {
 		this.name = name;
-		this.patterns = patterns;
+		this.patterns = Collections.unmodifiableList(patterns);
 		this.negate = negate;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public List<String> getPatterns() {
+		return patterns;
+	}
+
+	public boolean isNegate() {
+		return negate;
 	}
 
 	private void eval(StringBuilder sb, TemplateDefinition t, Object obj, HashMap<String, Object> defs,
