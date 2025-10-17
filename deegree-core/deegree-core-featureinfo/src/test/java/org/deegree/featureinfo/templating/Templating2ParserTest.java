@@ -40,16 +40,13 @@
  ----------------------------------------------------------------------------*/
 package org.deegree.featureinfo.templating;
 
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.antlr.runtime.ANTLRInputStream;
-import org.antlr.runtime.CharStream;
-import org.antlr.runtime.CommonTokenStream;
-import org.antlr.runtime.RecognitionException;
+import org.antlr.runtime.*;
 import org.deegree.featureinfo.templating.lang.*;
 import org.junit.Test;
 
@@ -262,6 +259,23 @@ public class Templating2ParserTest {
 		Map<String, Definition> defs = parser.definitions();
 		assertEquals(4, defs.size());
 		assertEquals(0, parser.getNumberOfSyntaxErrors());
+	}
+
+	@Test
+	public void testLexer() throws IOException {
+		String name = "utahdemo.gfi";
+		InputStream inputStream = Templating2ParserTest.class.getResourceAsStream(name);
+		assertNotNull(String.format("Failed to read resource: %s", name), inputStream);
+		CharStream input = new ANTLRInputStream(inputStream);
+		Templating2Lexer lexer = new Templating2Lexer(input);
+
+		CommonTokenStream cts = new CommonTokenStream(lexer);
+		cts.fill();
+
+		for (int i = 0; i < cts.size(); i++) {
+			Token token = cts.get(i);
+			System.out.println(i + ": " + token);
+		}
 	}
 
 	private static Templating2Parser getParser(String name) throws IOException {

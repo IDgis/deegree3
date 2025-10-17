@@ -15,6 +15,17 @@
     <plugins>
       <plugin>
         <groupId>org.antlr</groupId>
+        <artifactId>antlr4-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>antlr4</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.antlr</groupId>
         <artifactId>antlr3-maven-plugin</artifactId>
         <executions>
           <execution>
@@ -41,6 +52,10 @@
       <artifactId>deegree-core-test-logging</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.antlr</groupId>
+      <artifactId>antlr4-runtime</artifactId>
     </dependency>
     <dependency>
       <groupId>org.antlr</groupId>
